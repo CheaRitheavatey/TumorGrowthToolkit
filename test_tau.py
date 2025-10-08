@@ -12,10 +12,15 @@ wm_data = nib.load('/mnt/8tb_slot8/jonas/datasets/tau_pet_Archive/sub-6377/ses-2
 gm_data = nib.load('/mnt/8tb_slot8/jonas/datasets/tau_pet_Archive/sub-6377/ses-2018-08-17/sub-6377_ses-2018-08-17_GMProb.nii.gz').get_fdata()*1.0
 tau_data = nib.load('/mnt/8tb_slot8/jonas/datasets/tau_pet_Archive/sub-6377/ses-2018-08-17/sub-6377_ses-2018-08-17_pet-AV1451_INFCER_SUVR.nii.gz').get_fdata()*1.0
 
+#all nan to 0 in tau data
+tau_data = np.nan_to_num(tau_data, nan=0.0)
+wm_data = np.nan_to_num(wm_data, nan=0.0)
+gm_data = np.nan_to_num(gm_data, nan=0.0)
+
 brainmask = (wm_data + gm_data) > 0.01
 
 tau_data = tau_data * brainmask - 1 
-tau_data[tau_data < 0.3] = 0
+tau_data[tau_data < 0] = 0
 tau_data[tau_data > 1] = 1
 
 
@@ -34,11 +39,11 @@ plt.colorbar()
 #%%
 # Set up parameters
 parameters = {
-    'Dw': 0.3,          # Diffusion coefficient for white matter
-    'rho': 0.840,         # Proliferation rate
-    'RatioDw_Dg': 10.0,  # Ratio of diffusion coefficients in white and grey matter
-    'gm': gm_data * 0,      # Grey matter data
-    'wm': brainmask * 1.0,      # White matter data
+    'Dw': 0.7,          # Diffusion coefficient for white matter
+    'rho': 0.30,         # Proliferation rate
+    'RatioDw_Dg': 1.0,  # Ratio of diffusion coefficients in white and grey matter
+    'gm': gm_data,      # Grey matter data
+    'wm': wm_data,      # White matter data
     'NxT1_pct': 0.3,    # tumor position [%]
     'NyT1_pct': 0.7,
     'NzT1_pct': 0.5,
@@ -54,6 +59,8 @@ parameters = {
 # Create custom color maps
 cmap1 = matplotlib.colors.LinearSegmentedColormap.from_list('my_cmap', ['black', 'white'], 256)
 cmap2 = matplotlib.colors.LinearSegmentedColormap.from_list('my_cmap2', ['black', 'green', 'yellow', 'red'], 256)
+
+cmap2 = plt.get_cmap('jet')
 
 # Calculate the slice index
 NzT = int(parameters['NzT1_pct'] * gm_data.shape[2])
@@ -76,7 +83,7 @@ def plot_tumor_states(wm_data, initial_state, final_state, slice_index):
     plt.show()
     
 
-def plot_time_series(wm_data, time_series_data, slice_index):
+def plot_time_series(wm_data, time_series_data, slice_index, coronal_slice_index):
     plt.figure(figsize=(24, 12))
 
     # Generate 8 indices evenly spaced across the time series length
@@ -84,9 +91,22 @@ def plot_time_series(wm_data, time_series_data, slice_index):
 
     for i, t in enumerate(time_points):
         plt.subplot(2, 4, i + 1)  # 2 rows, 4 columns, current subplot index
-        plt.imshow(wm_data[:, :, slice_index], cmap=cmap1, vmin=0, vmax=1, alpha=1)
-        plt.imshow(time_series_data[t, :, :, slice_index], cmap=cmap2, vmin=0, vmax=1, alpha=0.65)
-        plt.title(f"Time Slice {t + 1}")
+        plt.imshow(np.rot90(wm_data[:, :, slice_index], k=1), cmap=cmap1, vmin=0, vmax=1, alpha=1)
+        plt.imshow(np.rot90(time_series_data[t, :, :, slice_index], k=1), cmap=cmap2, vmin=0, vmax=1, alpha=0.65)
+        plt.title(f"Axial Time Slice {t + 1}")
+
+    plt.tight_layout()
+    plt.show()
+
+    # Add coronal plot along y-axis
+     
+    plt.figure(figsize=(24, 12))
+
+    for i, t in enumerate(time_points):
+        plt.subplot(2, 4, i + 1)  # 2 rows, 4 columns, current subplot index
+        plt.imshow(np.rot90(wm_data[:, coronal_slice_index, :], k=1), cmap=cmap1, vmin=0, vmax=1, alpha=1)
+        plt.imshow(np.rot90(time_series_data[t, :, coronal_slice_index, :], k=1), cmap=cmap2, vmin=0, vmax=1, alpha=0.65)
+        plt.title(f"Coronal Time Slice {t + 1}")
 
     plt.tight_layout()
     plt.show()
@@ -98,11 +118,14 @@ result = fk_solver.solve()
 end_time = time.time()  # Store the end time
 execution_time = int(end_time - start_time)  # Calculate the difference
 
+#%%
+NzT = 32
+
 print(f"Execution Time: {execution_time} seconds")
 if result['success']:
     print("Simulation successful!")
-    plot_tumor_states(wm_data, result['initial_state'], result['final_state'], NzT)
-    plot_time_series(wm_data,result['time_series'], NzT)
+    #plot_tumor_states(wm_data, result['initial_state'], result['final_state'], NzT)
+    plot_time_series(wm_data,result['time_series'], NzT, 50)
 else:
     print("Error occurred:", result['error'])
 
@@ -110,4 +133,6 @@ else:
 nib.save(nib.Nifti1Image(result['time_series'][0], np.eye(4)), 'initial_tumor.nii.gz')
 nib.save(nib.Nifti1Image(result['time_series'][1], np.eye(4)), '1_mid_tumor.nii.gz')
 nib.save(nib.Nifti1Image(result['time_series'][2], np.eye(4)), '2_mid_tumor.nii.gz') 
+# %%
+result
 # %%
