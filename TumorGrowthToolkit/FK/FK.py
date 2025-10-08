@@ -8,7 +8,8 @@ class Solver(BaseSolver):
         super().__init__(params)
     
     def m_Tildas(self, WM,GM,th):
-            
+        
+        #why only roll -1 and not +1?
         WM_tilda_x = np.where(np.logical_and(np.roll(WM,-1,axis=0) + np.roll(GM,-1,axis=0) >= th,WM + GM >= th),(np.roll(WM,-1,axis=0) + WM)/2,0)
         WM_tilda_y = np.where(np.logical_and(np.roll(WM,-1,axis=1) + np.roll(GM,-1,axis=1) >= th,WM + GM >= th),(np.roll(WM,-1,axis=1) + WM)/2,0)
         WM_tilda_z = np.where(np.logical_and(np.roll(WM,-1,axis=2) + np.roll(GM,-1,axis=2) >= th,WM + GM >= th),(np.roll(WM,-1,axis=2) + WM)/2,0)
@@ -21,6 +22,7 @@ class Solver(BaseSolver):
 
     def get_D(self, WM, GM, th, Dw, Dw_ratio):
         M = self.m_Tildas(WM,GM,th)
+        #TODO why only is only D_plus_x considering the the next cell?
         D_minus_x = Dw*(M["WM_t_x"] + M["GM_t_x"]/Dw_ratio)
         D_minus_y = Dw*(M["WM_t_y"] + M["GM_t_y"]/Dw_ratio)
         D_minus_z = Dw*(M["WM_t_z"] + M["GM_t_z"]/Dw_ratio)
@@ -28,6 +30,25 @@ class Solver(BaseSolver):
         D_plus_x = Dw*(np.roll(M["WM_t_x"],1,axis=0) + np.roll(M["GM_t_x"],1,axis=0)/Dw_ratio)
         D_plus_y = Dw*(np.roll(M["WM_t_y"],1,axis=1) + np.roll(M["GM_t_y"],1,axis=1)/Dw_ratio)
         D_plus_z = Dw*(np.roll(M["WM_t_z"],1,axis=2) + np.roll(M["GM_t_z"],1,axis=2)/Dw_ratio)
+
+        import matplotlib.pyplot as plt # TODO: remove
+
+        plt.imshow(D_minus_x[:,:,D_minus_x.shape[2]//2])
+        plt.title("D_minus_x")
+        plt.colorbar()
+        plt.show()
+
+        plt.imshow(D_plus_x[:,:,D_plus_x.shape[2]//2])
+        plt.title("D_plus_x")
+        plt.colorbar()
+        plt.show()
+
+        plt.title("difference")
+        plt.imshow(D_plus_x[:,:,D_plus_x.shape[2]//2] - D_minus_x[:,:,D_minus_x.shape[2]//2],cmap='bwr', vmin=-1, vmax=1)
+        plt.colorbar()
+        plt.show()
+
+
         
         return {"D_minus_x": D_minus_x, "D_minus_y": D_minus_y, "D_minus_z": D_minus_z,"D_plus_x": D_plus_x, "D_plus_y": D_plus_y, "D_plus_z": D_plus_z}
 
@@ -139,6 +160,7 @@ class Solver(BaseSolver):
         # Validate input
         assert isinstance(sGM, np.ndarray), "sGM must be a numpy array"
         assert isinstance(sWM, np.ndarray), "sWM must be a numpy array"
+        
         assert sGM.ndim == 3, "sGM must be a 3D numpy array"
         assert sWM.ndim == 3, "sWM must be a 3D numpy array"
         assert sGM.shape == sWM.shape
@@ -182,14 +204,33 @@ class Solver(BaseSolver):
             return result
 
         #stability condition \Delta t \leq \min \left( \frac{\Delta x^2}{6 D_{\text{max}}}, \frac{1}{\rho} \right)
-        Nt = np.max([stopping_time * Dw/np.power((np.min([dx,dy,dz])),2)*8 + 100, stopping_time * f *1.1 ]) 
+        Nt = np.max([stopping_time * Dw/np.power((np.min([dx,dy,dz])),2)*8 + 100, stopping_time * f *1.1 ])
         dt = stopping_time/Nt
         N_simulation_steps = int(np.ceil(Nt))
         if verbose: 
             print(f'Number of simulation timesteps: {N_simulation_steps}')
 
-        xv, yv, zv = np.meshgrid(np.arange(0, Nx), np.arange(0, Ny), np.arange(0, Nz), indexing='ij')
-        A = np.array(self.gauss_sol3d(xv - NxT1, yv - NyT1, zv - NzT1,dx,dy,dz,init_scale))
+        # Prepare initial tumor distribution A (low-res grid)
+        if isinstance(init_scale, np.ndarray):
+            # User provided an array as the initial cell distribution.
+            if init_scale.ndim != 3:
+                result = {'error': 'init_scale must be a 3D numpy array', 'success': False}
+                return result
+
+            # If init provided in original resolution, resample to low-res using same factor as tissues
+            if init_scale.shape == sGM.shape:
+                try:
+                    A_low_res = zoom(init_scale, res_factor, order=1)
+                except Exception as e:
+                    result = {'error': f'Failed to resample init_scale to low-res: {e}', 'success': False}
+                    return result
+          
+            # Clip values to [0,1] and ensure float
+            A = np.clip(np.array(A_low_res, dtype=float), 0.0, 1.0)
+        else:
+            xv, yv, zv = np.meshgrid(np.arange(0, Nx), np.arange(0, Ny), np.arange(0, Nz), indexing='ij')
+            A = np.array(self.gauss_sol3d(xv - NxT1, yv - NyT1, zv - NzT1,dx,dy,dz,init_scale))
+
         col_res = np.zeros([2, Nx, Ny, Nz])
         col_res[0] = copy.deepcopy(A) #init
         
