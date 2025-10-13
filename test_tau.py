@@ -23,7 +23,11 @@ tau_data = tau_data * brainmask - 1
 tau_data[tau_data < 0] = 0
 tau_data[tau_data > 1] = 1
 
+#set all the border pixels to 0
+dilationMask = scipy.ndimage.binary_dilation(1.0-brainmask, iterations=2)
 
+tau_data[dilationMask==1] = 0
+testGM = gm_data * (1.0 - dilationMask)
 
 gm_data[brainmask==0] = 0
 wm_data[brainmask==0] = 0
@@ -32,6 +36,8 @@ wm_data[brainmask==0] = 0
 plt.imshow(tau_data[:,:,50], cmap='hot')
 plt.title("Tau Data Slice")
 plt.colorbar()
+#
+plt.imshow((gm_data -testGM)[:,:,50], cmap='gray')
 
 #%%
 plt.imshow((wm_data + gm_data)[:,:,50], cmap='gray')
